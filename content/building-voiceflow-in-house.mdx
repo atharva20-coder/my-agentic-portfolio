@@ -1,0 +1,170 @@
+---
+title: "Why We're Building Our Voice AI Stack In-House"
+publishedAt: "2025-12-01"
+summary: "We evaluated ElevenLabs, Bolna, and every aggregator in between. The math stopped working. Here's what we built instead — and why owning the stack is the only defensible position at scale."
+tags: "Voice AI, ArisX, Architecture, VoiceFlow, Production"
+---
+
+## The Question We Kept Getting Asked
+
+Every time I demo Aria — our outbound voice AI for collections and procurement — someone asks: "Why didn't you just use ElevenLabs? Or Bolna? There are aggregators that wrap the whole stack."
+
+Fair question. We asked ourselves the same thing.
+
+For the last few weeks, we've been heads-down building **VoiceFlow**: a visual flow builder and in-browser voice bot testing platform for outbound and inbound LLM calls, with English and 9 Indian languages out of the box.
+
+This is the build-vs-buy story. And the honest version.
+
+## We Actually Evaluated Both
+
+Before writing a line of custom infrastructure, we ran a proper evaluation.
+
+**ElevenLabs** — genuinely superior on voice quality. No argument. The voices sound human, the emotional range is real, and the API is clean. If voice quality were the only variable, ElevenLabs wins.
+
+**Aggregators (Bolna and others)** — fast to demo. You can have a working voice bot in hours. The DX is smooth, the integrations are pre-built, and you don't have to think about ASR or TTS adapter boundaries.
+
+So why didn't we just use them?
+
+## The Unit Economics Broke
+
+We modeled our call volume and ran the numbers.
+
+Per-minute pricing on managed platforms scales linearly with usage. At low volume, it's invisible. At the call volumes we're targeting — BFSI clients, NBFC collections, procurement follow-ups — it stops being a line item and starts being a tax on every conversation.
+
+The problem isn't the cost today. The problem is that the cost curve doesn't bend. You scale, they scale with you, and your margin doesn't improve. In a product where you're competing on cost-per-resolution (replacing human agents at ₹200–500 per call with AI at under ₹10), giving 40–60% of that economics to a managed platform is not a viable position.
+
+That's the first reason. The second is more important.
+
+## The "Generic" Voice Agent Doesn't Exist
+
+The deeper problem with aggregator platforms isn't pricing — it's tuning.
+
+Our users aren't calling generic customers about generic things. They're calling borrowers in Tier 2 and Tier 3 cities about EMIs. They're navigating objections in Hindi, Marathi, Tamil, and Hinglish. They're dealing with specific regulatory constraints around what a collections agent can and cannot say.
+
+A voice agent tuned for English customer service in San Francisco is not the same product. The accent handling is wrong. The code-switching breaks. The objection patterns don't match. The model has no intuition for "bhai time dedo" followed by a genuine willingness to pay.
+
+You can't prompt-engineer your way out of this. The stack needs to understand the domain.
+
+So we went the other way.
+
+## What We Built: VoiceFlow
+
+VoiceFlow is our internal platform — and the commercial product we're now building out.
+
+### FSM-Enforced Flow Execution
+
+The most important architectural decision we made: **LLM output never directly drives state transitions.**
+
+In most voice agent setups, the LLM decides what happens next. It generates text, and that text is interpreted to determine which path to take. This is a hallucination waiting to happen. On a collections call, the wrong state transition — jumping to offer before identity verification, or closing before confirming the amount — is a compliance failure.
+
+We enforce flow execution with a **finite state machine** where LLM output is schema-constrained using Pydantic and `instructor`. Free text can express nuance within a state. It cannot trigger a transition. Transitions are deterministic, and the FSM owns them.
+
+```python
+from pydantic import BaseModel
+from instructor import patch
+from openai import OpenAI
+
+class TurnOutput(BaseModel):
+    intent: Literal["acknowledge", "probe", "handle_objection", "offer_arrangement", "escalate", "close"]
+    response_text: str
+    entities: dict[str, str]
+
+client = patch(OpenAI())
+
+def process_turn(transcript: str, current_stage: str) -> TurnOutput:
+    return client.chat.completions.create(
+        model="gpt-4o",
+        response_model=TurnOutput,
+        messages=[
+            {"role": "system", "content": build_stage_prompt(current_stage)},
+            {"role": "user", "content": transcript}
+        ]
+    )
+
+# FSM consumes `intent` to drive transitions — LLM can't hallucinate its way out
+next_stage = fsm.transition(current_stage, turn_output.intent)
+```
+
+The LLM handles language. The FSM handles logic. They don't bleed into each other.
+
+### Pluggable Adapter Boundary
+
+Every ASR, LLM, and TTS provider sits behind a uniform adapter interface. Swapping providers is zero-code — change a config value and the adapter handles the rest.
+
+Current adapters live:
+- **ASR:** Deepgram, Whisper, Gemini Live Audio
+- **LLM:** MiniMax, Mistral, GPT-4o, Gemini 2.5 Flash
+- **TTS:** ElevenLabs, Sarvam Voice, MiniMax TTS
+
+This matters for two reasons. First, Indian language support varies wildly by provider — Deepgram is poor on Hinglish, Sarvam is better on Indic TTS, Gemini Live is best for real-time S2S in Hindi. No single provider wins every slot. Second, the market is moving fast. Locking into one provider's API surface is a liability. Adapter boundaries let us swap without rewrites.
+
+### Gemini Live Audio — Speech-to-Speech
+
+For real-time calls where latency is critical, we integrated Gemini Live Audio as a native speech-to-speech path. No STT step, no TTS step — audio goes in, audio comes out. The model hears tone, pace, hesitation.
+
+Sub-600ms TTFT is achievable on this path with proper VAD configuration and preloaded session prompts. For a collections call where every second of silence erodes trust, that number is not negotiable.
+
+### The Performance Numbers
+
+- **Planner loop:** Sub-2ms
+- **Barge-in:** Within one VAD frame — the agent stops talking the moment the customer interrupts
+- **First audio overhead:** Under 200ms from session ready to first audio byte
+- **Telephony:** Plivo and Exotel adapters live in production
+
+### Visual Flow Builder + In-Browser Testing
+
+We built a **React Flow DAG editor** that lets you design call flows visually — nodes are stages, edges are transitions, and each node has a prompt editor and output schema attached.
+
+And because debugging a voice agent by listening to recordings is painful, we built an **in-browser voice testing environment**. You can speak into your laptop microphone, run the flow locally against a test configuration, and hear the bot respond in real time — without placing an actual call.
+
+This alone cut iteration time by 60%. You find the broken state before it hits a real customer.
+
+### MongoDB as the Only Datastore
+
+One deliberate constraint: MongoDB only. No Postgres, no Redis, no vector DB for the core system.
+
+Conversation state, session logs, account data, flow definitions — all in MongoDB. The schema flexibility matters: every client's conversation data looks different, and forcing it into a rigid relational schema creates friction. Document storage fits the problem naturally.
+
+## What We Don't Have Yet (And Are Building)
+
+### Our Own ASR
+
+Every ASR model we tested degrades on Indian accents and code-switching. Deepgram is weakest. Whisper is better. Gemini Live is currently the most capable. But none of them were trained on the distribution we need: Hindi-English code-switching in Tier 2–3 city accents, domain-specific terminology in financial collections.
+
+We're training our own. The training data pipeline — call recordings, consent-collected, labeled for intent and entity — is in progress.
+
+### Our Own TTS
+
+Indic TTS is the weakest link in every stack we tested. Commercial Indic TTS sounds robotic. Sarvam is the best option right now and it's still noticeably synthetic on emotional delivery.
+
+For our use case, the voice needs to sound like a trained rep — patient, clear, confident, with appropriate warmth. That's not achievable off-the-shelf for Hindi yet.
+
+We're building our own. Voice cloning with a curated base voice, fine-tuned on collections conversation patterns.
+
+### A Fine-Tuned LLM
+
+We're paying for 70B general-purpose reasoning capabilities we don't use. For a collections call, the model doesn't need to write poetry or solve math problems. It needs to understand intent, maintain context, handle a small set of objection patterns, and stay within regulatory guardrails.
+
+A smaller model fine-tuned on our conversation data will outperform a general-purpose model on our specific task — and at a fraction of the inference cost.
+
+### Speech-to-Speech — Native
+
+The end state is a single S2S model that handles the full call: ASR, reasoning, TTS — one model, one round-trip, zero handoffs. Architecturally similar to Moshi but trained on our domain.
+
+That's the roadmap. It's ambitious. But every step we take toward it removes a dependency and improves both latency and economics simultaneously.
+
+## Why This Is the Moat
+
+The managed platform path gives you speed-to-demo. We're not arguing against that for early validation.
+
+But at scale, owning the stack means three things:
+
+**Owning the cost curve.** Per-minute pricing doesn't improve as you scale. Your own models do — training costs amortize across calls, inference gets cheaper with volume, and you're not paying a platform margin on every minute.
+
+**Owning the latency budget.** Every third-party dependency is a round-trip you don't control. Adapter boundaries let you optimize at every layer. Your own models let you co-optimize across layers — ASR output format tuned to your LLM's input, LLM output schema tuned to your TTS's phoneme boundaries.
+
+**Owning the accuracy ceiling.** Generic models have a generic accuracy ceiling on your domain. Fine-tuned models on your data improve beyond that ceiling. There's no equivalent lever on a managed platform.
+
+For a voice product where every 100ms and every rupee per minute compounds across millions of calls — this isn't a nice-to-have. It's the only defensible position.
+
+We evaluated both paths honestly. The math led us here.

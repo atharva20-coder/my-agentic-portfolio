@@ -1,0 +1,47 @@
+# Atharva Joshi
+
+> Software engineer specialising in AI voice agents, real-time LLM pipelines, and WhatsApp automation. Open to new roles.
+
+## About
+
+Atharva Joshi is a software engineer building AI systems that operate over voice and messaging channels. He is the creator of ArisX — an AI-powered debt resolution platform — and Aria, a live voice agent for right-party contact verification built on Gemini 3.1 Flash Live over WebRTC.
+
+He works primarily in TypeScript and Python, with a focus on real-time AI systems: STT → LLM → TTS pipelines, sub-600ms voice latency, distributed session management, and agentic multi-stage conversation flows.
+
+## Current Work
+
+- **ArisX** (two products):
+  1. Voice Bots — ultra-low-latency AI agents that call customers, handle objections, and close collections live on the phone. Stack: Deepgram STT, Gemini 2.5 Flash, GPT-4o, Gemini 3.1 Flash Live, WebRTC, Python.
+  2. WhatsApp Bots — AI agents running the same collection and negotiation workflows over WhatsApp Business. Stack: Next.js 15, BullMQ, Redis, Supabase, WhatsApp Business API.
+  - Domains: BFSI, NBFC, Procurement, Negotiation, Debt Resolution
+  - Worked with CEOs and top leadership from YC-backed companies. Executed live voice and WhatsApp campaigns in production.
+- **Aria**: AI voice agent for right-party contact verification, powered by Gemini 3.1 Flash Live over WebRTC. Sub-600ms TTFT.
+
+## Skills
+
+- Languages: TypeScript, Python, Java
+- Frameworks: Next.js 15, React, Vite, FastAPI
+- AI/ML: Deepgram, Gemini 3.1 Flash Live, Gemini 2.5 Flash, GPT-4o, Claude API, STT/TTS pipelines, speech-to-speech, LLM eval, agentic systems
+- Infrastructure: Redis, BullMQ, Supabase, WebRTC, WebSocket, WhatsApp Business API
+- Tools: Claude Code, Cursor, GitHub Actions
+
+## Projects
+
+- ArisX — WhatsApp AI agent platform (private)
+- Aria — RPC voice agent over WebRTC (private)
+- Paraxis — task management app (TypeScript)
+- llm_intent_entity — LLM eval framework for ASR model benchmarking
+- northjs — npm package for electrical engineers
+- youtube-downloader — terminal YouTube downloader (Python)
+- keepitup — habit/streak tracking app (TypeScript)
+
+## Contact
+
+- Email: atharvajoshi2520@gmail.com
+- GitHub: https://github.com/atharva20-coder
+- LinkedIn: https://www.linkedin.com/in/atharva20/
+- X/Twitter: https://x.com/ceo_joshi
+
+## Availability
+
+Open to full-time roles and contracts. Interested in AI infrastructure, voice AI, agentic systems, and developer tools.

@@ -1,0 +1,134 @@
+---
+title: "Speech-to-Speech AI in 2025: Where We Are and What's Still Broken"
+publishedAt: "2025-10-05"
+summary: "The landscape of S2S models has changed dramatically — Gemini Live, GPT-4o audio, Moshi. Here's what each does well, where each breaks, and the fundamental limits nobody's solved yet."
+tags: "Voice AI, Speech-to-Speech, Gemini Live, GPT-4o, AI"
+---
+
+## A Year That Changed the Stack
+
+Twelve months ago, building a real-time voice AI meant stitching three separate models together: an STT model to transcribe speech, an LLM to generate a response, and a TTS model to speak it. Each model added latency. Each handoff added complexity. Each step added a failure mode.
+
+That architecture is still common. But in 2025, we have something better: **native speech-to-speech models** — systems that receive audio directly and return audio directly, with no intermediate text representation exposed to the pipeline.
+
+The shift is significant. Not just because it removes latency. But because it changes what the model can perceive.
+
+In a pipeline architecture, the model only sees text. Everything nonverbal — tone, pace, hesitation, frustration, confidence — gets thrown away by the STT step. The model is literally deaf to how you say things.
+
+In a speech-to-speech architecture, the model hears what you hear.
+
+## The Models Worth Knowing About
+
+### Gemini Live (Google)
+
+Gemini Live is the most production-ready S2S model available right now for developers. It operates over a persistent WebSocket connection, handles bidirectional audio in real time, and supports tool use, function calling, multi-turn context, and long-form conversations with context window compression.
+
+Gemini 3.1 Flash Live specifically is fast. With a well-configured session, you can hit sub-600ms TTFT (time to first audio byte) — competitive with human conversation latency.
+
+The model also handles interruptions well. If the user starts speaking while the bot is talking, you can detect it via `content.interrupted` and halt playback immediately. That's critical for natural conversation flow.
+
+**What's good:**
+- Native audio in/out
+- Tool use support
+- VAD built in, configurable
+- Context window compression for long calls
+- Good Hindi-English code-switching capability
+
+**What's still rough:**
+- Async function calling not supported (as of early 2026) — tool calls block audio
+- No proactive audio (can't interrupt the user spontaneously)
+- Session lifetime ~10 minutes without compression enabled
+- `thinkingBudget` removed; replaced with `thinkingLevel` (minimal/low/medium/high)
+- Cumulative transcript bug: `output_transcription` sends the full transcript so far, not deltas — if you naively append each event you get repeated text
+
+```python
+# Cumulative transcript handling — NOT delta
+output_text: str = ""
+
+if content.output_transcription and content.output_transcription.text:
+    new_text = content.output_transcription.text
+    if new_text.startswith(output_text):
+        output_text = new_text   # cumulative — replace, don't append
+    else:
+        output_text += new_text  # genuine delta
+```
+
+### GPT-4o Audio (OpenAI)
+
+OpenAI's audio-native mode for GPT-4o was a significant moment when it launched. The model can hear you — it picks up emotional tone, speaking pace, even laughter. The demos were impressive.
+
+In practice, the latency is higher than Gemini Live for most real-time use cases. It's better suited for applications where the audio *quality* of the response matters more than speed — media production, creative tools, accessibility applications.
+
+GPT-4o audio also has better multilingual support for many European languages. For Indian languages and Hinglish, Gemini Live currently edges it out.
+
+**Where to use it:** Applications where naturalness of voice expression and emotional range matters more than latency. Not ideal for high-volume automated calling.
+
+### Moshi (Mistral / Kyutai)
+
+Moshi is a fully open-source speech-to-speech model. It operates with a dual-stream architecture: one stream generates the bot's speech, another handles the user's — both in real time, simultaneously. This makes it theoretically capable of true turn-overlapping conversation, which no other production model currently does.
+
+The tradeoff is quality. Moshi is a research artifact more than a production system. Voice quality is noticeably synthetic, and it struggles with complex multi-turn conversations. But as an open-source baseline, it's the most complete S2S system available to self-host.
+
+**Where to use it:** Research, experimentation, applications that require full local deployment with no cloud dependency.
+
+## What S2S Models Still Can't Do
+
+For all the progress in the last year, the fundamental limitations are real.
+
+### Real-time emotional awareness is limited
+
+Yes, audio models can detect that you sound frustrated. But acting on that awareness consistently — adjusting tone, slowing down, empathizing — requires the model to have that behavior deeply integrated, not bolted on. Most models will pick up frustration but won't reliably modulate their response in a meaningful way.
+
+For customer service use cases, this matters a lot. A collections call where the agent can't detect when someone is about to hang up in frustration is a bad collections call.
+
+### Cross-lingual code-switching is still spotty
+
+Indian conversations switch between Hindi and English multiple times in a single sentence. "Mera kal payment kar dunga, promise hai" followed by "But actually bhai, thoda time chahiye."
+
+Current S2S models handle this with varying reliability. Gemini Live does best in my testing, but still occasionally loses the thread on dense code-switching. Whisper handles the transcription reasonably but misses phonetic accuracy on Indian accents.
+
+There's no production-grade model optimized specifically for Hinglish, Tanglish, or similar mixed-language patterns. This is a genuine gap.
+
+### Tool calls break the real-time feel
+
+In Gemini Live, tool calls are synchronous. The model pauses audio generation, fires the function, waits for the return, then resumes. That pause is audible. For functions that take 200ms+, the user hears a gap. For functions that take 2 seconds, the call feels broken.
+
+The workaround is either caching tool outputs in advance, keeping tools extremely fast, or — the approach I use with Aria — eliminating unnecessary tools entirely and doing context tracking asynchronously post-turn.
+
+Async tool execution is on every developer's wish list. It's not here yet.
+
+### Long-context degradation
+
+Most S2S models have session limits. Gemini Live recommends context window compression (SlidingWindow) for calls over 10–15 minutes. Without it, the model starts forgetting earlier turns, which shows up as inconsistent behavior mid-call.
+
+For most use cases — customer service calls under 10 minutes — this isn't a problem. For applications where conversations span hours (coaching, therapy, sales cycles), it's unsolved.
+
+## The Architecture Decision in 2025
+
+Given all of this, how should you think about building voice AI in 2025?
+
+**Use a native S2S model (Gemini Live, GPT-4o audio) if:**
+- You need sub-700ms TTFT
+- Your conversation is in a supported language
+- You can live with current tool call limitations
+- Sessions are under 15 minutes
+
+**Use a pipeline (STT → LLM → TTS) if:**
+- You need deterministic transcripts at every step
+- You're in a multilingual context where you want to choose your STT separately
+- You need existing TTS voice cloning that S2S models don't support
+- You have strict audio quality requirements (e.g., broadcast voice)
+
+**Hybrid:** Use a native S2S model for the real-time conversation, but run a parallel pipeline that maintains a transcript, extracts entities post-turn, and logs everything. You get the latency benefits of S2S and the observability of a pipeline.
+
+This is what Aria does. The conversation runs on Gemini Live. Post-turn, an async task extracts intent and entities from the transcript, updates state, and logs to the database. Zero TTFT impact from the logging.
+
+## Where This Goes
+
+The direction is clear: more of the stack gets absorbed into the model. Today it's audio I/O. Tomorrow it's memory and context. The year after, it's multimodal perception — seeing the user on video while speaking to them.
+
+The current bottlenecks — tool call latency, cross-lingual handling, long context degradation — will get solved. The question is when, and whether open-source solutions arrive before or after the big labs solve them commercially.
+
+For developers building voice AI right now: ship with native S2S where it works, know your fallback, and measure TTFT on every call. The model is only part of the system. The rest is engineering.
+
+And the engineering is what separates a demo from something that actually runs on a phone call with a real person.

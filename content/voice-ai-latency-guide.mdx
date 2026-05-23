@@ -1,0 +1,200 @@
+---
+title: "Latency in Voice AI: What's Actually Killing Your TTFT (And How to Fix It)"
+publishedAt: "2025-09-10"
+summary: "A production engineer's guide to every millisecond between the user's last word and your bot's first audio byte — and what you can actually do about each one."
+tags: "Voice AI, Latency, Production, Gemini Live, Deepgram"
+---
+
+## The Number That Matters
+
+When I say a voice agent works, I mean one specific thing: **the human on the phone doesn't notice they're talking to a machine.**
+
+Everything else is secondary. Accuracy matters. Understanding intent matters. But if the bot pauses for three seconds before responding, the illusion collapses immediately. Nobody waits three seconds in a real conversation without assuming the other person has either died or isn't listening.
+
+The metric that captures this is **TTFT — Time to First Token**. Specifically, time from the last word the user speaks to the first byte of audio the bot sends back.
+
+Target: **under 600ms**. That's human-adjacent. Anything above 1.5 seconds and you've lost the call.
+
+After building Aria — an outbound voice agent for NBFC collections — I've spent a lot of time chasing this number. Here's everything I know about what creates latency and how to kill it.
+
+## The Latency Stack
+
+Voice AI latency isn't one thing. It's a stack of delays that compound:
+
+```
+User stops speaking
+     ↓ VAD (Voice Activity Detection) detects silence
+     ↓ Audio buffer flushed
+     ↓ STT processes speech → text
+     ↓ LLM receives prompt → generates tokens
+     ↓ TTS receives text → generates audio
+     ↓ First audio byte sent
+User hears response
+```
+
+Each arrow is a latency source. Let's go through them.
+
+## Layer 1: VAD (Voice Activity Detection)
+
+VAD decides when the user has finished speaking. This is the first hidden delay most people don't think about.
+
+Most STT services have built-in VAD, but the default silence thresholds are conservative. They wait 800ms to 1500ms of silence before declaring the turn complete. That's already close to your entire latency budget before you've even touched LLM processing.
+
+**What to do:**
+
+With Gemini Live API, you can configure VAD directly:
+
+```python
+realtime_input_config=types.RealtimeInputConfig(
+    automatic_activity_detection=types.AutomaticActivityDetection(
+        disabled=False,
+        silence_duration_ms=400,  # default is ~800ms — cut it in half
+    )
+)
+```
+
+400ms feels aggressive but in practice works well for most conversations. If users are taking thinking pauses mid-sentence, you may get premature cuts — tune per use case.
+
+**Savings: 200–400ms**
+
+## Layer 2: STT (Speech-to-Text)
+
+If you're using a pipeline architecture (STT → LLM → TTS), STT adds real latency. Even fast models add 200–400ms per turn, and that's before network round-trips.
+
+The better answer is **end-to-end speech models** like Gemini Live, which receive audio directly and skip the STT step entirely. No intermediate transcription, no round-trip — the model hears what you hear.
+
+When you're on a pipeline architecture and can't move to end-to-end, Deepgram's streaming transcription with `interim_results=True` lets you start LLM processing before the utterance is complete. You lose some accuracy, but you recover 150–300ms.
+
+**Savings: 200–600ms depending on architecture**
+
+## Layer 3: LLM Processing (TTFT from the Model)
+
+This is the layer people optimize first and it's often not the biggest problem.
+
+Modern frontier models have fast inference. The bigger issue is **what you're sending them**.
+
+### Context size kills speed
+
+Every token in your prompt adds to the time before the first output token. If you're injecting a 10KB system prompt mid-conversation, you'll see 5–7 second TTFT spikes. I measured this directly while building Aria.
+
+The fix: **preload everything at session start.**
+
+```python
+# At session creation, include ALL stage prompts in a single system instruction
+system_prompt = (
+    audio_mode_rules
+    + f"CURRENT STAGE: {start_stage.upper()}\n\n"
+    + "\n".join(stage_blocks)  # all stages preloaded
+)
+```
+
+Stage transitions then cost ~200 bytes of injection instead of 50KB:
+
+```python
+directive = (
+    f"[STAGE_TRANSITION: {from_stage} → {next_stage}]\n"
+    f"CURRENT STAGE: {next_stage}\n"
+    f"Switch to {next_stage} stage instructions from your system prompt NOW."
+)
+await session.send_realtime_input(text=directive)
+```
+
+This eliminated 5–7 second spikes from Aria's call flow entirely.
+
+### Tool calls block audio
+
+In the Gemini Live API, tool calls are synchronous. The model stops generating audio and waits for your function to return. Every tool call adds at minimum a network round-trip — 50–150ms.
+
+**Rule: never declare a tool to the model unless it absolutely needs to call it.**
+
+For context tracking, use async post-turn extraction instead:
+
+```python
+# Fire this AFTER turn_complete — zero TTFT impact
+async def update_context_async(transcript, session_state):
+    asyncio.create_task(
+        extract_and_store_context(transcript, session_state)
+    )
+```
+
+**Savings: 50–500ms per turn depending on tool count**
+
+## Layer 4: TTS (Text-to-Speech)
+
+If you're using a pipeline with external TTS, this is another round-trip. ElevenLabs, PlayHT, Sarvam — all add 200–400ms before you can start streaming audio.
+
+The key is **streaming TTS, not batch TTS**. Don't wait for the full text to be generated. Pipe text chunks to TTS as they come out of the LLM.
+
+Most TTS APIs support streaming now. If yours doesn't, switch.
+
+With Gemini Live in audio mode, you skip TTS entirely — the model generates audio directly. This alone eliminates one full round-trip from the stack.
+
+**Savings: 200–400ms**
+
+## Layer 5: Audio Buffering and Playback
+
+The final hidden delay: audio buffering on the client side.
+
+If you're playing audio in 4KB chunks over WebSocket, you're adding buffering delay before the user hears anything. Reduce chunk size. Pre-roll the audio player. Don't wait for a full sentence — start playing as soon as the first frame arrives.
+
+This sounds trivial but it's 50–150ms of free latency recovery.
+
+## Measuring TTFT Correctly
+
+Most people measure latency wrong. They measure from when they sent the request to when they received a response. That's not TTFT.
+
+Correct measurement:
+
+```python
+user_turn_ts: int = 0
+first_audio_emitted: bool = False
+first_audio_ttft: int | None = None
+
+# Update timestamp on each input transcription fragment
+# The LAST fragment before silence is the accurate end-of-user-speech marker
+if content.input_transcription and not first_audio_emitted:
+    user_turn_ts = int(time.time() * 1000)
+
+# Record at FIRST audio byte, not at turn_complete
+if content.model_turn:
+    for part in content.model_turn.parts:
+        if part.inline_data and not first_audio_emitted:
+            first_audio_emitted = True
+            first_audio_ttft = int(time.time() * 1000) - user_turn_ts
+```
+
+Do not recalculate at `turn_complete`. That measures time to end of response, not first audio byte — a completely different number.
+
+## My TTFT Targets in Production
+
+| Range | Classification | Action |
+|---|---|---|
+| < 600ms | Good | Ship it |
+| 600–1000ms | Acceptable | Monitor, optimize when possible |
+| 1000–1500ms | Warning | Investigate — likely a context or tool issue |
+| > 1500ms | Critical | Something is broken |
+
+## The Full Optimization Checklist
+
+- VAD silence threshold: set to 400ms
+- Preload all prompts at session start — no mid-session injection
+- Remove tools the model doesn't need to call
+- Post-turn context extraction via asyncio tasks, not tool calls
+- Streaming TTS if using a pipeline
+- Small audio chunks, pre-roll player
+- Context window compression for long calls (SlidingWindow)
+- Measure TTFT from last input transcription fragment, not request time
+
+## One More Thing
+
+Latency optimization is not a one-time fix. It's a practice.
+
+Every new feature you add to your voice agent is a potential latency regression. Every prompt change can slow the model. Every tool you add costs a round-trip.
+
+Build latency measurement into your default logging, not as an afterthought. Track it per call, per stage, per turn. Know your baseline. Know when it changes.
+
+The 600ms target is not easy to hit. But it's reachable, and it's worth fighting for.
+
+Sub-600ms is the difference between "this is impressive tech" and "I forgot I was talking to a machine."
+
+That's the whole game.

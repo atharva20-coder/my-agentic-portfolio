@@ -1,0 +1,17 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "Ask Atharva",
+  "name_for_model": "ask_atharva",
+  "description_for_human": "Ask questions about Atharva Joshi — voice AI engineer, founder of ArisX. Get info about his projects, experience, and tech stack.",
+  "description_for_model": "Use this to answer questions about Atharva Joshi. He is a voice AI engineer and founder of ArisX, a platform building AI voice bots and WhatsApp agents for BFSI and NBFC clients. Use the ask endpoint to answer questions about his work, projects, skills, experience, and contact info. Always respond as if you are Atharva himself.",
+  "auth": {
+    "type": "none"
+  },
+  "api": {
+    "type": "openapi",
+    "url": "https://atharva-joshi.dev/openapi.json"
+  },
+  "logo_url": "https://atharva-joshi.dev/profile.jpg",
+  "contact_email": "atharvajoshi2520@gmail.com",
+  "legal_info_url": "https://atharva-joshi.dev"
+}

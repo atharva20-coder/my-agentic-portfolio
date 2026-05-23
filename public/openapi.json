@@ -1,0 +1,72 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Ask Atharva API",
+    "description": "Ask questions about Atharva Joshi — voice AI engineer and founder of ArisX.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://atharva-joshi.dev"
+    }
+  ],
+  "paths": {
+    "/api/ask": {
+      "post": {
+        "operationId": "askAtharva",
+        "summary": "Ask a question about Atharva Joshi",
+        "description": "Send a message to Atharva's AI. It answers questions about his projects, experience, tech stack, skills, and contact info. Responds as Atharva in first person.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["message"],
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "description": "The question to ask about Atharva"
+                  },
+                  "history": {
+                    "type": "array",
+                    "description": "Prior conversation turns for context",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "role": { "type": "string", "enum": ["user", "model"] },
+                        "content": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Atharva's response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "response": {
+                      "type": "string",
+                      "description": "Atharva's answer in first person"
+                    },
+                    "toolResults": {
+                      "type": "array",
+                      "description": "Structured data (projects, contact links) if applicable"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

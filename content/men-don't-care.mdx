@@ -1,0 +1,99 @@
+---
+title: "Why I Keep Building Things That Don’t Make Sense"
+publishedAt: "2025-07-20"
+summary: "On building a Goggins voice bot, a Hinge agent, and a Tanmay Bhat nickname extractor — and what that pattern of weird side projects actually means."
+tags: "Side Projects, Building, Personal, AI"
+---
+
+## The Project List
+
+Let me give you the resume version of my side projects:
+
+- A voice chatbot that responds like David Goggins
+- An AI agent that operates Hinge, analyses profiles, and executes likes via voice command
+- A system that extracts Tanmay Bhat’s "-er OP" nicknames from YouTube transcripts using STT models and GPT
+
+Now here’s the question: **what do these have in common with a voice AI for NBFC collections?**
+
+The honest answer is: almost nothing, technically. But completely everything, philosophically.
+
+## What "Doesn’t Make Sense" Teaches You
+
+Nobody was asking for a Goggins chatbot. There’s no market for it. There’s no TAM slide you can put in a deck. There’s definitely no investor who said "what the BFSI space really needs is a Goggins-voiced chatbot."
+
+But when I built it, I learned:
+- How TTS latency works and why 15 seconds is unusable
+- The real difference between Coqui TTS and PlayHT
+- How to think about audio chunking and streaming
+- That DeepSpeed integration on CPU is a bad time
+- That "free" GPU services on Hugging Face will cost you 3 hours and 19-minute response times
+
+None of this was in a tutorial. All of it was in the problem.
+
+That’s the thing about weird side projects: they’re unoptimized for speed and completely optimized for learning. When you’re building something nobody cares about except you, you go deeper, stay longer, and make weirder decisions. And those decisions teach you things that matter later.
+
+## JARVIS for Hinge Was Real Engineering
+
+The Hinge agent sounds like a joke. It kind of is a joke. But here’s what it actually required:
+
+- Android emulator window management on macOS via AppleScript and Yabai
+- SIFT + FLANN feature matching for dynamic button detection (98% accuracy, <100ms)
+- Real-time profile analysis with Gemini Live API
+- Voice-controlled tool orchestration via ElevenLabs
+
+The SIFT algorithm I figured out for detecting the like button? I used the same approach — feature-based matching instead of pixel-based — when I was thinking about how Aria should handle ambiguous audio in a phone call. The method of detecting "what’s actually here" versus "what was I expecting to be here" shows up in both places.
+
+You learn the pattern, not the implementation.
+
+## The OP Nickname Project Was Just For Fun
+
+I will not pretend the Tanmay Bhat nickname extractor had strategic value.
+
+I watched one too many reaction videos, noticed the pattern, thought "I wonder if I can automate this," and spent a weekend on it. That’s the whole story.
+
+But I learned how Deepgram handles Hinglish (badly), how Whisper handles multilingual content (better, but still not great), and how to write a GPT prompt that can reverse-engineer badly transcribed nicknames from garbage STT output.
+
+Fast forward: when I’m benchmarking STT models for Aria in Hindi-English mixed conversations, I already know the failure modes. I’ve seen how these models collapse on Indian accents and code-switching. I didn’t need to figure that out from scratch — I’d already been there.
+
+## The Pattern I Didn’t Plan
+
+I didn’t set out with a strategy of "build weird things to learn and then apply it to BFSI voice AI."
+
+But looking backwards, every weird side project was actually a proof of concept for something that ended up in Aria:
+
+| Side Project | What It Taught | Where It Showed Up |
+|---|---|---|
+| Goggins chatbot | TTS latency, voice streaming, open-source models | Aria’s audio pipeline |
+| Hinge agent | Computer vision, real-time API calls, tool orchestration | Agentic call flow design |
+| OP nickname extractor | STT model selection, Hinglish handling, GPT prompting | Aria’s ASR benchmarking |
+| JARVIS | ElevenLabs + voice UX | Aria’s voice persona system |
+
+None of this was planned. All of it was useful.
+
+## Why Side Projects Need to Not Make Sense
+
+When you’re building something with commercial pressure — a client, a deadline, a demo — you make safe choices. You use the tool you know. You pick the approach that’s most likely to work. You optimize for shipping.
+
+Side projects are the only place where you can optimize for learning. Nobody is waiting. Nobody is paying. You can spend three hours on SIFT matching because it’s interesting. You can try the dumb approach, watch it fail, understand *why* it fails, and come out with knowledge you couldn’t have bought.
+
+The best engineers I’ve talked to all have this pattern. There’s a graveyard of weird projects behind every impressive production system.
+
+## What I’m Building Now
+
+ArisX and Aria are the "serious" versions of everything I’ve been playing with.
+
+An outbound voice agent that calls NBFC customers, handles collections scripts, manages objections, and closes — in Hindi and English, sub-600ms, sounding like a trained rep. That’s the product.
+
+But behind that product is a Goggins bot that couldn’t do 15-second latency. A Hinge agent that needed SIFT to find a button. A nickname extractor that exposed every flaw in existing STT models.
+
+The weird stuff wasn’t wasted time. It was the curriculum.
+
+## The Real Reason
+
+There’s also a simpler answer to "why do you build things that don’t make sense."
+
+They’re fun. The ideas pop into your head and they don’t leave until you try them. And trying them — even when they fail, even when the latency is 3 minutes and the GPU crashes — feels better than not trying them.
+
+I don’t know how to explain that to someone who’s never felt it. But if you have, you know exactly what I’m talking about.
+
+Build the weird thing. You’ll figure out why it mattered later.
